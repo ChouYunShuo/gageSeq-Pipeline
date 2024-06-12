@@ -1,0 +1,32 @@
+{
+    "data_folder": "/work/magroup/tianming/Researches/sc-hic/data2/final/results_mBC_spatial_full_data",
+    "output_path": "/work/magroup/yunshuoc/scHDF5_data/mouse2_slice99_001.h5",
+    "contact_map_file_name": "contact-map_mouse2_slice99_chr",
+    "embed_file_name": "embedding_mouse2_slice99.pkl",
+    "meta_file_name": "meta_mouse2_slice99.csv",
+    "gene_expr_file_name": "expression_mouse2_slice99.pkl",
+    "tracks": [
+        {
+            "resolution": 100000,
+            "track_object": {
+                "ab_score": "1d-score-ab_mouse2_slice99_100kb_chr",
+                "insul_score": "1d-score-is-hw10_mouse2_slice99_100kb_chr",
+                "gene_score": "1d-score-genebody_mouse2_slice99_100kb_chr"
+            }
+        }
+    ],
+    "sample_id": "mouse2_sample5",
+    "slice_id": "mouse2_slice99",
+    "chrom_size_path": "./annotation/GRCm39_chome_size.txt",
+    "_cell_cnt": 2690,
+    "cell_cnt": 8,
+    "resolutions": [
+        100000
+    ],
+    "h5_opts": {
+        "compression": "gzip",
+        "compression_opts": 6,
+        "shuffle": true,
+        "chunks": true
+    }
+}
