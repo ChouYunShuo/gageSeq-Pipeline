@@ -122,7 +122,7 @@ def copyGroup(source_group, dest_group):
             dest_subgroup = dest_group.create_group(key)
             copyGroup(item, dest_subgroup)
 
-def copyDataset(item, dest_group, track_type):
+def copy_dataset(item, dest_group, track_type):
     """
     Copy a single HDF5 dataset to a destination group with a specified track type.
 
@@ -140,7 +140,7 @@ def copyDataset(item, dest_group, track_type):
         dest_group.create_dataset(track_type, data=item[...], dtype=item.dtype, shape=item.shape)
         
 
-def fileType(fname: str):
+def file_type(fname: str):
     """
     Determine the file type based on the file extension.
 

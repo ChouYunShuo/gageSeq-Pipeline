@@ -4,13 +4,14 @@ import json
 import os
 import sys
 import pickle
+import pandas as pd
 from sklearn.decomposition import PCA
 from umap import UMAP
 from collections import defaultdict
-from utils import rlencode, fileType, copyDataset, merge_temp_h5_files, print_hdf5_structure, check_hdf5_structure
+from utils import rlencode, file_type, merge_temp_h5_files, print_hdf5_structure, check_hdf5_structure
 from matrixParser import MatrixParser
 import multiprocessing as mp
-import tqdm
+
 CHROM_DTYPE = np.dtype("S")
 CHROMID_DTYPE = np.int32
 CHROMSIZE_DTYPE = np.int32
@@ -176,38 +177,80 @@ def write_embed(grp, embed, h5_opts):
 
     grp.create_dataset("pca", shape=(len(vec_pca),2), data= vec_pca, **h5_opts)
     grp.create_dataset("umap", shape=(len(vec_umap),2), data= vec_umap, **h5_opts)
-    #grp.create_dataset("label", shape=(len(label),), data= label, **h5_opts)
 
-def write_meta(grp, data, label_name, h5_opts):
-    cell_type = np.array(data[label_name])
-    ascii_label = np.char.encode(cell_type, 'ascii')
-    grp.create_dataset("label", shape=(len(ascii_label),), data= ascii_label, **h5_opts)
+def write_meta(grp, data, h5_opts):
+    vec_label = np.array(data['subclass']).astype(str)
+    ascii_label = np.char.encode(vec_label, 'ascii')
+    grp.create_dataset("label", shape=(len(ascii_label)), data= ascii_label, **h5_opts)
 
-def write_track(source_dataset, cur_grp, track_type: str):
+def write_spatial(grp, data, h5_opts):
+    coords = np.column_stack((data['coor_X'].to_numpy(), data['coor_Y'].to_numpy()))
+    grp.create_dataset("coords", shape=(len(coords),2), data= coords, **h5_opts)
+
+def write_gene_expr(grp, gene_expr_data, h5_opts):
+    gene_expr_data = gene_expr_data.T
+    for k in range(gene_expr_data.shape[0]):
+        v = gene_expr_data[k, :]
+        grp.create_dataset(str(k), shape=(len(v),), data=v, **h5_opts)
+
+def get_track_index(grp, n_bins, n_pixels):
+    bin = np.array(grp["bin_id"])
+    bin_offset = np.zeros(n_bins + 1, dtype=OFFSET_DTYPE)
+    curr_val = 0
+
+    for start, length, value in zip(*rlencode(bin, 1000000)):
+        bin_offset[curr_val: value + 1] = start
+        curr_val = value+1
+
+    bin_offset[curr_val:] = n_pixels
+
+    return bin_offset
+
+def setup_track(grp, nbins, h5_opts):
+    max_shape = 2*nbins
+    grp.create_dataset('bin_id', shape=(max_shape,),
+                       dtype=BIN_DTYPE, **h5_opts)
+    grp.create_dataset("count", shape=(max_shape,),
+                       dtype=COUNT_DTYPE, **h5_opts)
+
+def createTrack(data_folder, cur_grp, track_type: str, track_f_name:str, chrom_list, cur_res: int, n_bins, cell_id, h5_opts):
     if track_type in cur_grp:
         del cur_grp[track_type]
-    copyDataset(source_dataset, cur_grp, track_type)
 
+    track_dataset = cur_grp.create_dataset(track_type, shape=(2*n_bins,),
+                       dtype=COUNT_DTYPE, **h5_opts)
+    chrom_offset = cur_grp.parent["indexes"].get("chrom_offset")
+    cellMatrixParser = MatrixParser(
+         data_folder, track_f_name, chrom_list, chrom_offset, cell_id, "1d", track_type)
+    m_size = 0
+    for chunk in cellMatrixParser:
+        n = len(chunk[track_type])
+        track_dataset.resize((m_size + n,))
+        track_dataset[m_size: m_size + n] = chunk[track_type]
+        m_size += n
+
+
+### functions for parallel process contact maps
 def process_cells_range(start, end, process_id, temp_folder, neighbor_num, cell_cnt, contact_map_file, raw_map_file, np_chroms_names, chrom_offset, res, cytoband_file, embedding_name, h5_opts, n_bins, progress, process_cnt):
-        temp_h5_path = os.path.join(temp_folder, f"temp_cells_{process_id}.h5")
-        with h5py.File(temp_h5_path, 'w') as hdf:
-            for i in range(start, end):
-                print(f"Process {process_id} processing cell {i}")
-                cur_cell_grp = hdf.create_group(f"cell_{i}")
-                cell_grp_pixels = cur_cell_grp.create_group("pixels")
-                setup_pixels(cell_grp_pixels, n_bins, h5_opts)
-                write_pixels(cell_grp_pixels, contact_map_file, raw_map_file, np_chroms_names,
-                            chrom_offset, i, neighbor_num, list(cur_cell_grp["pixels"]), res, cytoband_file, embedding_name, process_cnt)
-                n_pixels = len(cur_cell_grp["pixels"].get("bin1_id"))
-                bin_offset = get_pixel_index(cur_cell_grp["pixels"], n_bins, n_pixels)
-                grp_index = cur_cell_grp.create_group("indexes")
-                write_index(grp_index, chrom_offset, bin_offset, h5_opts)
+    temp_h5_path = os.path.join(temp_folder, f"temp_cells_{process_id}.h5")
+    with h5py.File(temp_h5_path, 'w') as hdf:
+        for i in range(start, end):
+            print(f"Process {process_id} processing cell {i}")
+            cur_cell_grp = hdf.create_group(f"cell_{i}")
+            cell_grp_pixels = cur_cell_grp.create_group("pixels")
+            setup_pixels(cell_grp_pixels, n_bins, h5_opts)
+            write_pixels(cell_grp_pixels, contact_map_file, raw_map_file, np_chroms_names,
+                        chrom_offset, i, neighbor_num, list(cur_cell_grp["pixels"]), res, cytoband_file, embedding_name, process_cnt)
+            n_pixels = len(cur_cell_grp["pixels"].get("bin1_id"))
+            bin_offset = get_pixel_index(cur_cell_grp["pixels"], n_bins, n_pixels)
+            grp_index = cur_cell_grp.create_group("indexes")
+            write_index(grp_index, chrom_offset, bin_offset, h5_opts)
 
-                with progress.get_lock():
-                    progress.value += 1
-                    if progress.value % 10 == 0:  # Print progress every 10 cells
-                        print(f"Process {process_id} has completed {progress.value} cells")
-        #print(f"Process {process_id} finished processing cells {start} to {end-1}")
+            with progress.get_lock():
+                progress.value += 1
+                if progress.value % 10 == 0:  # Print progress every 10 cells
+                    print(f"Process {process_id} has completed {progress.value} cells")
+    #print(f"Process {process_id} finished processing cells {start} to {end-1}")
 
 
 
@@ -335,62 +378,92 @@ class SCHiCGenerator:
     def append_h5(self, atype: str):
         if not os.path.exists(self.output_path):
             raise RuntimeError("sc-HiC file: " +  self.output_path + " not exists")
-        if(atype=='embed'):
-            print("appending cell embeddings...")
-            embed_file = os.path.join(self.data_folder, self.embed_file_name)
-            cell_embeddings = np.load(embed_file)
+
+        if(atype =='embed'):
+            embed_path = os.path.join(self.data_folder, self.embed_file_name)
+            if not os.path.exists(embed_path):
+                raise RuntimeError("File: " + self.embed_file_name + " does not exists, you need to load it first!")
+            if file_type(embed_path) == 'na':
+                raise RuntimeError("Cannot recognize file: " + embed_path + "'s file type!")
+
+            if file_type(embed_path) == 'npy':
+                cell_embeddings = np.load(embed_path)
+            elif file_type(embed_path) == 'pkl':
+                cell_embeddings = pickle.load(open(embed_path, "rb"))
 
             with h5py.File(self.output_path, 'a') as hdf:
                 if 'embed' in hdf:
                     # Delete the group 'rgrp'
                     del hdf['embed']
-
                 emb_grp = hdf.create_group('embed')
                 write_embed(emb_grp, cell_embeddings, self.h5_opts)
-        elif(atype=='meta'):
-            print("appending cell meta data...")
-            meta_file = os.path.join(self.data_folder, self.meta_file_name)
-            if fileType(meta_file) !="pkl":
-                raise FileNotFoundError(f"The file '{meta_file}' is not a pickle file.")
+        
+        elif(atype == 'meta'):
+            meta_path = os.path.join(self.data_folder, self.meta_file_name)
+            if not os.path.exists(meta_path):
+                raise RuntimeError("File: " + self.meta_file_name + " does not exists, you need to load it first!")
+            if file_type(meta_path) == 'na':
+                raise RuntimeError("Cannot recognize file: " + meta_path + "'s file type!")
             
-            label_info = pickle.load(open(meta_file, "rb"))
+            data = pd.read_csv(meta_path)
             with h5py.File(self.output_path, 'a') as hdf:
                 if 'meta' in hdf:
                     # Delete the group 'rgrp'
                     del hdf['meta']
-
                 meta_grp = hdf.create_group('meta')
-                write_meta(meta_grp, label_info, self.embed_label, self.h5_opts)
-        elif(atype=='1dtrack'):
-            print("appending 1d track data...")
-            for res_tracks in self.tracks:
-                for track_type, track_f_name in res_tracks["track_object"].items():   
-                    track_file = os.path.join(self.data_folder, track_f_name)
-                    if not os.path.exists(track_file):
-                        raise FileNotFoundError(f"The file '{track_file}' does not exist.")
-            
-            with h5py.File(self.output_path, 'a') as hdf:
-                for res_tracks in self.tracks:
-                    cur_res = res_tracks["resolution"]
-                    cell_groups = [f"resolutions/{cur_res}/cells/cell_{i}" for i in range(self.cell_cnt)]
-                    
-                    # Open track files outside the inner loops to minimize the number of open calls
-                    track_files = {}
-                    for track_type, track_f_name in res_tracks["track_object"].items():
-                        track_file_path = os.path.join(self.data_folder, track_f_name)
-                        track_files[track_type] = h5py.File(track_file_path, 'r')
+                write_meta(meta_grp, data, self.h5_opts)
 
+        elif(atype == 'spatial'):
+            spatial_path = os.path.join(self.data_folder, self.meta_file_name)
+            if not os.path.exists(spatial_path):
+                raise RuntimeError("File: " + self.meta_file_name + " does not exists, you need to load it first!")
+            if file_type(spatial_path) == 'na':
+                raise RuntimeError("Cannot recognize file: " + spatial_path + "'s file type!")
+            
+            data = pd.read_csv(spatial_path)
+            with h5py.File(self.output_path, 'a') as hdf:
+                if 'spatial' in hdf:
+                    # Delete the group 'rgrp'
+                    del hdf['spatial']
+                spatial_grp = hdf.create_group('spatial')
+                write_spatial(spatial_grp, data, self.h5_opts)
+
+        elif(atype == 'gene_expr'):
+            gene_path = os.path.join(self.data_folder, self.gene_expr_file_name)
+            if not os.path.exists(gene_path):
+                raise RuntimeError("File: " + self.gene_expr_file_name + " does not exists, you need to load it first!")
+            if file_type(gene_path) == 'na':
+                raise RuntimeError("Cannot recognize file: " + gene_path + "'s file type!")
+
+            if file_type(gene_path) == 'npy':
+                gene_expr_mat = np.load(gene_path)
+            elif file_type(gene_path) == 'pkl':
+                gene_expr_mat = pickle.load(open(gene_path, "rb"))
+
+            with h5py.File(self.output_path, 'a') as hdf:
+                if 'gene_expr' in hdf:
+                    # Delete the group 'rgrp'
+                    del hdf['gene_expr']
+                gene_grp = hdf.create_group('gene_expr')
+                write_gene_expr(gene_grp, gene_expr_mat, self.h5_opts)
+
+        elif(atype=='1dtrack'):
+            with h5py.File(self.output_path, 'a') as hdf:
+                for res_file in self.tracks:
+                    cur_res = res_file["resolution"]
+                    n_bins = len(hdf[f'resolutions/{cur_res}/bins'].get("chrom"))
+                    chrom_list = hdf[f'resolutions/{cur_res}/chroms'].get("name")
+
+                    # Pre-calculate group paths to reduce file navigation in the inner loop
+                    cell_groups = [f"resolutions/{cur_res}/cells/cell_id{i}" for i in range(self.cell_cnt)]
                     for cell_id, cell_group in enumerate(cell_groups):
                         cur_grp = hdf[cell_group]
                         if "tracks" in cur_grp:
                             del cur_grp["tracks"]
                         track_grp = cur_grp.create_group('tracks')
-                        for track_type, f in track_files.items():
-                            source_grp = f[f"insulation/cell_{cell_id}"]
-                            write_track(source_grp, track_grp, track_type)
-                    
-                    for f in track_files.values():
-                        f.close()
+
+                        for track_type, track_f_name in res_file["track_object"].items():   
+                            createTrack(self.data_folder, track_grp, track_type, track_f_name, chrom_list, cur_res, n_bins, cell_id, self.h5_opts)
         else:
             raise ValueError("Invalid atype provided. Only 'embed, meta, 1dtrack' is supported.")
 
