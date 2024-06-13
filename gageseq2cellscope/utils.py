@@ -103,7 +103,24 @@ def create_mask(res, c_path, k=30, chrom="chr1", origin_sparse=None):
 
     return a
 
-def copyGroup(source_group, dest_group):
+def sort_key(item):
+    name = item[0]
+    if name.isdigit():
+        return int(name)
+    
+def get_chroms_from_txt(filename):
+    chromosome_data = []
+    
+    with open(filename, 'r') as file:
+        for line in file:
+            name, length = line.split()
+            if name.startswith("chr") and (name[3:].isdigit()):#or name[3] in ["X"]):
+                chromosome_data.append((name[3:], int(length)))
+
+    chromosome_data.sort(key=sort_key)
+    return chromosome_data
+
+def copy_group(source_group, dest_group):
     """
     Recursively copy the contents of a source HDF5 group to a destination group.
 
@@ -120,7 +137,7 @@ def copyGroup(source_group, dest_group):
             dest_group.create_dataset(key, data=item[...], dtype=item.dtype, shape=item.shape)
         elif isinstance(item, h5py.Group):
             dest_subgroup = dest_group.create_group(key)
-            copyGroup(item, dest_subgroup)
+            copy_group(item, dest_subgroup)
 
 def copy_dataset(item, dest_group, track_type):
     """
