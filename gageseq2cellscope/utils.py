@@ -219,7 +219,7 @@ def print_hdf5_structure(file_path):
         padding = ' ' * (depth * 4)  # 4 spaces for each level of depth
         if isinstance(obj, h5py.Group):
             print(f"{padding}Group: {name}")
-            if name.endswith('/cells'):
+            if name.endswith('/cells') or name.endswith('gene_expr'):
                 first_child = list(obj.keys())[0] if obj.keys() else None
                 if first_child:
                     first_child_path = f"{name}/{first_child}"
