@@ -2,7 +2,7 @@ import argparse
 from core import generate_hic_file
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate HiC HDF5 files from Higashi")
+    parser = argparse.ArgumentParser(description="Generate scHiC HDF5 files from Gage-Seq")
     parser.add_argument('-c', '--config', type=str, required=True, help='Path to the config file')
     parser.add_argument('-m', '--mode', type=str, required=True, choices=['create', 'append', 'print', 'check'], help='Mode for the operation')
     parser.add_argument('-t', '--types', nargs='+', help='Types of operation for append')
