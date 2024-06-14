@@ -12,6 +12,7 @@ class MatrixParser:
         self.chrom_offset = chrom_offset
         self.cell_id = cell_id
         self.type = mat_type
+        self.process_cnt = process_cnt
         self.track_type = mat_type if track_type == "" else track_type
 
     def parse_2d_matrix(self, file_path, idx):
@@ -47,7 +48,7 @@ class MatrixParser:
         return x, y
 
     def __iter__(self):   
-        if self.process_cnt == 1:
+        if self.process_cnt == 1 and self.type == '2d':
             range_iter = trange(len(self.chrom_list), desc="Processing Chromosomes")
         else:
             range_iter = range(len(self.chrom_list))
