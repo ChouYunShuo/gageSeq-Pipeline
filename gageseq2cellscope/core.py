@@ -50,6 +50,20 @@ OFFSET_DTYPE = np.int64
      │       ├── cell_2
      │       │   ├── pixels
      │       │   └── indexes
+     │   └── groups
+     │       ├── group_0
+     │       │   ├── pixels
+     |       |   |   ├── bin1_id
+     |       |   |   ├── bin2_id
+     |       |   |   └── count
+     │       │   ├── indexes
+     │       │   │   ├── chrom_offset
+     |       |   │   └── bin1_offset
+     │       │   ├── tracks
+     |       |       └── insulation
+     │       ├── group_1
+     │       │   ├── pixels
+     │       │   └── indexes
      │   
      ├── 50000
      │   
