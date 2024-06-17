@@ -1,6 +1,6 @@
 {
     "data_folder": "/work/magroup/tianming/Researches/sc-hic/data2/final/results_mBC_spatial_full_data",
-    "output_path": "/work/magroup/yunshuoc/scHDF5_data/mouse2_slice99_003.h5",
+    "output_path": "/work/magroup/yunshuoc/scHDF5_data/mouse2_slice99_all.h5",
     "contact_map_file_name": "contact-map_mouse2_slice99_chr",
     "embed_file_name": "embedding_mouse2_slice99.pkl",
     "meta_file_name": "meta_mouse2_slice99.csv",
