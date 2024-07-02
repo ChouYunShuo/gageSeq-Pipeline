@@ -9,7 +9,8 @@ from sklearn.decomposition import PCA
 from umap import UMAP
 from tqdm import trange
 from collections import defaultdict
-from utils import rlencode, get_chroms_from_txt, file_type, merge_temp_h5_files, print_hdf5_structure, check_hdf5_structure
+from utils import rlencode, get_chroms_from_txt, file_type, merge_temp_h5_files, print_hdf5_structure, check_hdf5_structure, get_celltype_dict, get_chr_size_list, copy_dataset
+from groupMatrixParser import GroupMatrixParser
 from matrixParser import MatrixParser
 import multiprocessing as mp
 
@@ -28,45 +29,41 @@ OFFSET_DTYPE = np.int64
 │    ├── pca
 │    └── umap
 └── resolutions
-     ├── 10000
-     │   ├── bins
-     |   |   ├── chrom
-     |   |   ├── start
-     |   |   └── end
-     │   ├── chroms
-     |   |   ├── name
-     |   |   └── length
-     │   └── cells
-     │       ├── cell_1
-     │       │   ├── pixels
-     |       |   |   ├── bin1_id
-     |       |   |   ├── bin2_id
-     |       |   |   └── count
-     │       │   ├── indexes
-     │       │   │   ├── chrom_offset
-     |       |   │   └── bin1_offset
-     │       │   ├── tracks
-     |       |       └── insulation
-     │       ├── cell_2
-     │       │   ├── pixels
-     │       │   └── indexes
-     │   └── groups
-     │       ├── group_0
-     │       │   ├── pixels
-     |       |   |   ├── bin1_id
-     |       |   |   ├── bin2_id
-     |       |   |   └── count
-     │       │   ├── indexes
-     │       │   │   ├── chrom_offset
-     |       |   │   └── bin1_offset
-     │       │   ├── tracks
-     |       |       └── insulation
-     │       ├── group_1
-     │       │   ├── pixels
-     │       │   └── indexes
-     │   
-     ├── 50000
-     │   
+    ├── 10000
+    │   ├── bins
+    |   |   ├── chrom
+    |   |   ├── start
+    |   |   └── end
+    │   ├── chroms
+    |   |   ├── name
+    |   |   └── length
+    │   └── layers
+    │         ├── imputed_0neighbor
+    │         │   ├── cell_0
+    │         │   │   ├── pixels
+    │         │   │   │   ├── bin1_id
+    │         │   │   │   ├── bin2_id
+    │         │   │   │   └── count
+    │         │   │   └── indexes
+    │         │   │       ├── chrom_offset
+    │         │   │       └── bin1_offset
+    │         │   ├── cell_1
+    │         │   ├── cell_2
+    │         │   ├── group_0
+    │         │   └── group_1
+    │         ├── tracks
+    |         │    ├── insul_score
+    │         │    │   ├── cell_0
+    │         │    │   └── cell_1
+    |         │    ├── ab_score
+    │         │    │   ├── cell_0
+    │         │    │   └── cell_1
+    |         │    └── gene_score
+    │         │        ├── cell_0
+    │         │        └── cell_1
+    │
+    │   
+    ├── 50000
 
 """
 
@@ -124,6 +121,18 @@ def write_pixels(grp, data_folder, contact_map_fname, chrom_list, chrom_offset, 
          data_folder, contact_map_fname, chrom_list, chrom_offset, cell_id, "2d", process_cnt)
     m_size = 0
     for chunk in cellMatrixParser:
+        dsets = [grp[col] for col in columns]
+        n = len(chunk[columns[0]])
+        for col, dset in zip(columns, dsets):
+            dset.resize((m_size + n,))
+            dset[m_size: m_size + n] = chunk[col]
+        m_size += n
+
+def write_group_pixels(grp, data_folder, contact_map_fname, chrom_list, chrom_offset, cell_ids, columns, process_cnt, chrom_sizes):
+    matrixParser = GroupMatrixParser(
+         data_folder, contact_map_fname, chrom_list, chrom_offset, cell_ids, "2d", process_cnt, chrom_sizes)
+    m_size = 0
+    for chunk in matrixParser:
         dsets = [grp[col] for col in columns]
         n = len(chunk[columns[0]])
         for col, dset in zip(columns, dsets):
@@ -232,23 +241,28 @@ def createTrack(data_folder, cur_grp, track_type: str, track_f_name:str, chrom_l
 ### functions for parallel process contact maps
 def process_cells_range(start, end, process_id, temp_folder, data_folder, contact_map_file_name, np_chroms_names, chrom_offset, h5_opts, n_bins, progress, process_cnt):
     temp_h5_path = os.path.join(temp_folder, f"temp_cells_{process_id}.h5")
+    def process_single_cell(parent_group, cell_index):
+        cur_cell_grp = parent_group.create_group(f"cell_{cell_index}")
+        cell_grp_pixels = cur_cell_grp.create_group("pixels")
+        setup_pixels(cell_grp_pixels, n_bins, h5_opts)
+        write_pixels(cell_grp_pixels,  data_folder, contact_map_file_name,  np_chroms_names,
+                            chrom_offset, i, list(cur_cell_grp["pixels"]), process_cnt)
+        n_pixels = len(cur_cell_grp["pixels"].get("bin1_id"))
+        bin_offset = get_pixel_index(cur_cell_grp["pixels"], n_bins, n_pixels)
+        grp_index = cur_cell_grp.create_group("indexes")
+        write_index(grp_index, chrom_offset, bin_offset, h5_opts)
+    def update_progress(progress, process_id):
+        with progress.get_lock():
+            progress.value += 1
+            if progress.value % 10 == 0:  # Print progress every 10 cells
+                print(f"Process {process_id} has completed {progress.value} cells")
+
     with h5py.File(temp_h5_path, 'w') as hdf:
+        impute_group = hdf.create_group(f"imputed_0neighbor")
         for i in range(start, end):
             print(f"Process {process_id} processing cell {i}")
-            cur_cell_grp = hdf.create_group(f"cell_{i}")
-            cell_grp_pixels = cur_cell_grp.create_group("pixels")
-            setup_pixels(cell_grp_pixels, n_bins, h5_opts)
-            write_pixels(cell_grp_pixels,  data_folder, contact_map_file_name,  np_chroms_names,
-                             chrom_offset, i, list(cur_cell_grp["pixels"]), process_cnt)
-            n_pixels = len(cur_cell_grp["pixels"].get("bin1_id"))
-            bin_offset = get_pixel_index(cur_cell_grp["pixels"], n_bins, n_pixels)
-            grp_index = cur_cell_grp.create_group("indexes")
-            write_index(grp_index, chrom_offset, bin_offset, h5_opts)
-
-            with progress.get_lock():
-                progress.value += 1
-                if progress.value % 10 == 0:  # Print progress every 10 cells
-                    print(f"Process {process_id} has completed {progress.value} cells")
+            process_single_cell(impute_group, i)
+            update_progress(progress, process_id)
 
 class SCHiCGenerator:
     def __init__(self, config_path):
@@ -308,7 +322,8 @@ class SCHiCGenerator:
             grp_bins = res_grp.create_group("bins")
             write_bins(res, np_chroms_names,
                        np_chroms_length, grp_bins, self.h5_opts)
-            cell_groups = res_grp.create_group("cells")
+            
+            layer_groups = res_grp.create_group("layers")
 
             n_bins = len(res_grp["bins"].get("chrom"))
             n_chroms = len(res_grp["chroms"].get("length"))
@@ -316,10 +331,14 @@ class SCHiCGenerator:
                     res_grp["bins"], n_chroms, n_bins)
         
             if self.process_cnt == 1:
-                self.process_cells(cell_groups, n_bins, np_chroms_names, chrom_offset)
+                self.process_cells(layer_groups, n_bins, np_chroms_names, chrom_offset)
                 return
         if self.process_cnt > 1:
             self.parallel_process_cells(np_chroms_names, chrom_offset, n_bins, res)
+
+        with h5py.File(self.output_path, 'a') as hdf:
+            layer_groups = hdf[f"resolutions/{res}/layers"]
+            self.process_groups(layer_groups, n_bins, np_chroms_names, chrom_offset, res)
     
     def parallel_process_cells(self, np_chroms_names, chrom_offset, n_bins, res):
         # Determine the range of cells each process should handle
@@ -339,30 +358,54 @@ class SCHiCGenerator:
                 p = mp.Process(target=process_cells_range, args=(start, end, process_id, temp_folder, self.data_folder, self.contact_map_file_name, np_chroms_names, chrom_offset, self.h5_opts, n_bins, progress, self.process_cnt))
                 processes.append(p)
                 p.start()
-        print("in parallel_process_cells 2")
+
         # Wait for all processes to finish
         for p in processes:
             p.join()
         # Merge the temporary HDF5 files into the original HDF5 file
         merge_temp_h5_files(self.output_path, temp_folder, self.process_cnt, res)
 
-    def process_cells(self, cell_groups, n_bins, np_chroms_names, chrom_offset):
-        for i in range(self.cell_cnt):
-            print("cell "+str(i)+":")
-            cur_cell_grp = cell_groups.create_group(
-                "cell_"+str(i))
-            
+    def process_cells(self, layer_groups, n_bins, np_chroms_names, chrom_offset):
+        print("Processing cells...")
+        def process_single_cell(parent_group, cell_index):
+            cur_cell_grp = parent_group.create_group(f"cell_{cell_index}")
             cell_grp_pixels = cur_cell_grp.create_group("pixels")
             setup_pixels(cell_grp_pixels, n_bins, self.h5_opts)
             write_pixels(cell_grp_pixels,  self.data_folder,  self.contact_map_file_name,  np_chroms_names,
                             chrom_offset, i, list(cur_cell_grp["pixels"]), self.process_cnt)
-            n_pixels = len(cur_cell_grp["pixels"].get("bin1_id"))
-            
-            # write index for each cell
-            bin_offset = get_pixel_index(
-                cur_cell_grp["pixels"], n_bins, n_pixels)
+            n_pixels = len(cell_grp_pixels.get("bin1_id"))
+            bin_offset = get_pixel_index(cell_grp_pixels, n_bins, n_pixels)
             grp_index = cur_cell_grp.create_group("indexes")
             write_index(grp_index, chrom_offset, bin_offset, self.h5_opts)
+        
+         ## Write imputed data
+        impute_group = layer_groups.create_group(f"imputed_0neighbor")
+        for i in range(self.cell_cnt):
+            print(f"Processing cell {i}")
+            process_single_cell(impute_group, i, False)
+
+    def process_groups(self, layer_grp, n_bins, np_chroms_names, chrom_offset, res):
+        print("processing psuedo-bulk data...")
+        meta_path = os.path.join(self.data_folder, self.meta_file_name)
+        if not os.path.exists(meta_path):
+            raise RuntimeError("File: " + self.meta_file_name + " does not exists, you need to load it first!")
+        cell_type_dict = get_celltype_dict(meta_path, "subclass")
+        chrom_sizes = get_chr_size_list(layer_grp.parent["chroms/length"], res)
+
+        def process_group(parent_group, cell_type, cells):
+            cur_celltype_grp = parent_group.create_group(cell_type)
+            cell_celltype_pixels = cur_celltype_grp.create_group("pixels")
+            setup_pixels(cell_celltype_pixels, n_bins, self.h5_opts)
+            write_group_pixels(cell_celltype_pixels, self.data_folder, self.contact_map_file_name, np_chroms_names, chrom_offset, cells,  list(cell_celltype_pixels["pixels"]), self.process_cnt, chrom_sizes)
+            n_pixels = len(cell_celltype_pixels.get("bin1_id"))
+            bin_offset = get_pixel_index(cell_celltype_pixels, n_bins, n_pixels)
+            grp_index = cur_celltype_grp.create_group("indexes")
+            write_index(grp_index, chrom_offset, bin_offset, self.h5_opts)
+        
+        for cell_type, cells in cell_type_dict.items():
+            print(f"processing imputed group for type {cell_type}")
+            impute_grp = layer_grp[f"imputed_0neighbor"]
+            process_group(impute_grp, cell_type, cells)
     
     def append_h5(self, atype: str):
         if not os.path.exists(self.output_path):
@@ -442,24 +485,30 @@ class SCHiCGenerator:
 
         elif(atype=='1dtrack'):
             print("appending 1d track data...")
+
             with h5py.File(self.output_path, 'a') as hdf:
                 for res_file in self.tracks:
                     cur_res = res_file["resolution"]
+                    res_grp = hdf[f"resolutions/{cur_res}/layers"]
+                    # Ensure the 'tracks' group exists
+                    if 'tracks' in res_grp:
+                        del res_grp['tracks']
+                    tracks_grp = res_grp.create_group('tracks')
+
                     n_bins = len(hdf[f'resolutions/{cur_res}/bins'].get("chrom"))
                     chrom_list = hdf[f'resolutions/{cur_res}/chroms'].get("name")
 
-                    # Pre-calculate group paths to reduce file navigation in the inner loop
-                    cell_groups = [f"resolutions/{cur_res}/cells/cell_{i}" for i in range(self.cell_cnt)]
-                    range_iter = trange(len(cell_groups), desc="Processing Cell")
-                    for cell_id in range_iter:
-                        cell_group = cell_groups[cell_id]
-                        cur_grp = hdf[cell_group]
-                        if "tracks" in cur_grp:
-                            del cur_grp["tracks"]
-                        track_grp = cur_grp.create_group('tracks')
+                    # append chrom_offest
+                    index_grp = tracks_grp.create_group('indexes')
+                    chrom_offset_ds = res_grp[f"imputed_0neighbor/cell_0/indexes/chrom_offset"]
+                    copy_dataset(chrom_offset_ds, index_grp, "chrom_offset")
 
-                        for track_type, track_f_name in res_file["track_object"].items():   
-                            createTrack(self.data_folder, track_grp, track_type, track_f_name, chrom_list, cur_res, n_bins, cell_id, self.h5_opts)
+                    for track_type, track_f_name in res_file.items():
+                        if track_type in tracks_grp:
+                            del tracks_grp[track_type]
+                        track_grp = tracks_grp.create_group(track_type)
+                        for cell_id in range(self.cell_cnt):
+                            createTrack(self.data_folder, track_grp, track_type, track_f_name, chrom_list, cur_res, n_bins, cell_id, self.h5_opts)       
         else:
             raise ValueError("Invalid atype provided. Only 'embed, meta, 1dtrack' is supported.")
 
