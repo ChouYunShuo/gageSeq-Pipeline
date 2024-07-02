@@ -18,7 +18,7 @@
     "slice_id": "mouse1_slice122",
     "chrom_size_path": "./annotation/GRCm39_chome_size.txt",
     "_cell_cnt": 2690,
-    "cell_cnt": 2690,
+    "cell_cnt": 3075,
     "process_cnt": 32,
     "resolutions": [
         100000
