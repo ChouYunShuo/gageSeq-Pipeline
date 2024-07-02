@@ -3,7 +3,7 @@ import pandas as pd
 import h5py
 import os
 import pickle
-import pprint
+from collections import defaultdict
 OFFSET_DTYPE = np.int64
 
 
@@ -172,7 +172,7 @@ def file_type(fname: str):
     """
     return 'npy' if fname.endswith('npy') else 'pkl' if fname.endswith('pkl') else 'pkl' if fname.endswith('pickle') else 'csv' if fname.endswith('csv') else 'na'
 
-def merge_temp_h5_files(original_h5_path, temp_folder, process_cnt, res):
+def merge_temp_h5_files(original_h5_path, temp_folder, process_cnt, res, neighbor_num=[0]):
     """
     Merge temporary HDF5 files into an original HDF5 file.
 
@@ -190,12 +190,23 @@ def merge_temp_h5_files(original_h5_path, temp_folder, process_cnt, res):
     """
     with h5py.File(original_h5_path, 'a') as original_hdf:
         res_grp = original_hdf["resolutions"][str(res)]
-        cell_groups = res_grp["cells"]
+        layer_groups = res_grp["layers"]
+
+        raw_grp = layer_groups.create_group("raw")
+        imputed_grps = {}
+        for num in neighbor_num:
+            imputed_grps[num] = layer_groups.create_group(f"imputed_{num}neighbor")
         for process_id in range(process_cnt):
             temp_h5_path = os.path.join(temp_folder, f"temp_cells_{process_id}.h5")
             with h5py.File(temp_h5_path, 'r') as temp_hdf:
-                for cell_key in temp_hdf.keys():
-                    temp_hdf.copy(cell_key, cell_groups)
+                for cell_key in temp_hdf["raw"].keys():
+                    temp_hdf.copy(f"raw/{cell_key}", raw_grp)
+                
+                for num in neighbor_num:
+                    for cell_key in temp_hdf[f"imputed_{num}neighbor"].keys():
+                        temp_hdf.copy(f"imputed_{num}neighbor/{cell_key}", imputed_grps[num])
+                
+
             os.remove(temp_h5_path)  # Remove temporary file after merging
 
 def load_pickle(file_path):
@@ -273,37 +284,29 @@ def check_hdf5_structure(file_path):
                     return False, f"Missing dataset {required_ds} in {resolution}"
 
     return True, "HDF5 structure is valid"
- 
+
+def get_celltype_dict(file_path,label_name):
+    data = pd.read_csv(file_path)
+    cellTypeDict = defaultdict(list)
+
+    for idx, type in enumerate(data[label_name]):
+        cellTypeDict[type].append(idx)
+
+    return cellTypeDict
+
+def get_chr_size_list(dset, res):
+    return [d//res for d in dset]
 if __name__ == "__main__":
-    #file_path = '/work/magroup/yunshuoc/scHDF5_data/4DN_scHi-C_Kim_all.h5'
-    file_path = '/work/magroup/yunshuoc/Higashi_Pipeline/4DN_scHi-C_Kim/tmp/chr1_exp1_nbr_0_impute.hdf5'
-   
-    is_valid, message = check_hdf5_structure(file_path)
-    if is_valid:
-        print("HDF5 structure is valid.")
-    else:
-        print(f"Invalid HDF5 structure: {message}")
 
-    #print_hdf5_structure(file_path)
-
-    # check pickle file
-    # file_path = '/work/magroup/yunshuoc/Higashi_Pipeline/Ramani_et_al/label_info.pickle'
-    # #file_path = '/work/magroup/yunshuoc/Higashi_Pipeline/4DN_scHi-C_Kim/label_info.pickle'  # Adjust the path to your pickle file
-    # data = load_pickle(file_path)
+    # check cell type dict 
+    # file_path = "/work/magroup/tianming/Researches/sc-hic/data2/final/results_mBC_spatial_full_data/meta_mouse2_slice99.csv"
+    # cellTypeDict = get_celltype_dict(file_path, "subclass")
     
-    # # Use pprint to print the data structure in a readable format
-    # for key, value in data.items():
-    #     print(f"Key: {key}, Type: {type(value)}")
-    # print(len(data["cell type"]))
+    # check chr size list
+    
+    file_path = "/work/magroup/yunshuoc/scHDF5_data/mouse1_slice122_all.h5"
 
-
-    # check h5
-
-    # with h5py.File("../../../scHDF5_data/Lee_et_al_001.h5", 'r') as f:
-    #     dataset = f["resolutions/500000/cells/cell_1/tracks"]
-    #     print(list(dataset.keys()))
-        # print(len(f[f'resolutions/100000/bins'].get("chrom")))
-        # dataset = f["resolutions/100000/cells/cell_id1/pixels/count"]
-        # print(f"Dataset shape: {dataset.shape}")
-        # print(f"Dataset size: {dataset.size}")
-        # cells = ["cell_0"]
+    with h5py.File(file_path, 'r') as hdf: 
+        res = 100000
+        chromlen = hdf[f"resolutions/{res}/chroms/length"]
+        print(get_chr_size_list(chromlen, res))
