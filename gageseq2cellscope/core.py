@@ -195,11 +195,11 @@ def write_spatial(grp, data, h5_opts):
     coords = np.column_stack((data['coor_X'].to_numpy(), data['coor_Y'].to_numpy()))
     grp.create_dataset("coords", shape=(len(coords),2), data= coords, **h5_opts)
 
-def write_gene_expr(grp, gene_expr_data, h5_opts):
+def write_gene_expr(grp, gene_expr_data, gene_names, h5_opts):
     gene_expr_data = gene_expr_data.T
     for k in range(gene_expr_data.shape[0]):
         v = gene_expr_data[k, :]
-        grp.create_dataset(str(k), shape=(len(v),), data=v, **h5_opts)
+        grp.create_dataset(gene_names[k], shape=(len(v),), data=v, **h5_opts)
 
 def get_track_index(grp, n_bins, n_pixels):
     bin = np.array(grp["bin_id"])
@@ -271,6 +271,7 @@ class SCHiCGenerator:
         self.embed_file_name = ""
         self.meta_file_name = ""
         self.gene_expr_file_name = ""
+        self.gene_name_file_name = ""
         self.tracks = [] # store the 1d tracks name and its file name
         self.chrom_size_path = ""
         self.resolutions = []
@@ -466,23 +467,28 @@ class SCHiCGenerator:
 
         elif(atype == 'gene_expr'):
             print("appending gene_expr data...")
-            gene_path = os.path.join(self.data_folder, self.gene_expr_file_name)
-            if not os.path.exists(gene_path):
-                raise RuntimeError("File: " + self.gene_expr_file_name + " does not exists, you need to load it first!")
-            if file_type(gene_path) == 'na':
-                raise RuntimeError("Cannot recognize file: " + gene_path + "'s file type!")
+            gene_exp_path = os.path.join(self.data_folder, self.gene_expr_file_name)
+            gene_name_path = os.path.join(self.data_folder, self.gene_name_file_name)
 
-            if file_type(gene_path) == 'npy':
-                gene_expr_mat = np.load(gene_path)
-            elif file_type(gene_path) == 'pkl':
-                gene_expr_mat = pickle.load(open(gene_path, "rb"))
+            if not os.path.exists(gene_exp_path):
+                raise RuntimeError("File: " + self.gene_expr_file_name + " does not exists, you need to load it first!")
+            if file_type(gene_exp_path) == 'na':
+                raise RuntimeError("Cannot recognize file: " + gene_exp_path + "'s file type!")
+
+            if not os.path.exists(gene_name_path):
+                raise RuntimeError("File: " + self.gene_name_file_name + " does not exists, you need to load it first!")
+            if file_type(gene_exp_path) == 'na':
+                raise RuntimeError("Cannot recognize file: " + gene_name_path + "'s file type!")
+
+            gene_expr_mat = pickle.load(open(gene_exp_path, "rb"))
+            gene_name = pd.read_csv(gene_name_path)
 
             with h5py.File(self.output_path, 'a') as hdf:
                 if 'gene_expr' in hdf:
                     # Delete the group 'rgrp'
                     del hdf['gene_expr']
                 gene_grp = hdf.create_group('gene_expr')
-                write_gene_expr(gene_grp, gene_expr_mat, self.h5_opts)
+                write_gene_expr(gene_grp, gene_expr_mat, gene_name['gene_symbol'], self.h5_opts) #hard-coded for gene_name column in pd
 
         elif(atype=='1dtrack'):
             print("appending 1d track data...")
