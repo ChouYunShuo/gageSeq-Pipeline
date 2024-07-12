@@ -9,7 +9,7 @@ from sklearn.decomposition import PCA
 from umap import UMAP
 from tqdm import trange
 from collections import defaultdict
-from utils import rlencode, get_chroms_from_txt, file_type, merge_temp_h5_files, print_hdf5_structure, check_hdf5_structure, get_celltype_dict, get_chr_size_list, copy_dataset
+from utils import rlencode, get_chroms_from_txt, file_type, merge_temp_h5_files, print_hdf5_structure, check_hdf5_structure, get_celltype_dict, get_chr_size_list, copy_dataset,encode_name,decode_name
 from groupMatrixParser import GroupMatrixParser
 from matrixParser import MatrixParser
 import multiprocessing as mp
@@ -224,7 +224,6 @@ def setup_track(grp, nbins, h5_opts):
 def createTrack(data_folder, cur_grp, track_type: str, track_f_name:str, chrom_list, cur_res: int, n_bins, cell_id, h5_opts):
     if track_type in cur_grp:
         del cur_grp[track_type]
-
     track_dataset = cur_grp.create_dataset(track_type, shape=(2*n_bins,),
                        dtype=COUNT_DTYPE, **h5_opts)
     chrom_offset = cur_grp.parent["indexes"].get("chrom_offset")
@@ -396,16 +395,18 @@ class SCHiCGenerator:
             cur_celltype_grp = parent_group.create_group(cell_type)
             cell_celltype_pixels = cur_celltype_grp.create_group("pixels")
             setup_pixels(cell_celltype_pixels, n_bins, self.h5_opts)
-            write_group_pixels(cell_celltype_pixels, self.data_folder, self.contact_map_file_name, np_chroms_names, chrom_offset, cells,  list(cell_celltype_pixels["pixels"]), self.process_cnt, chrom_sizes)
+            write_group_pixels(cell_celltype_pixels, self.data_folder, self.contact_map_file_name, np_chroms_names, chrom_offset, cells,  list(cur_celltype_grp["pixels"]), self.process_cnt, chrom_sizes)
             n_pixels = len(cell_celltype_pixels.get("bin1_id"))
             bin_offset = get_pixel_index(cell_celltype_pixels, n_bins, n_pixels)
             grp_index = cur_celltype_grp.create_group("indexes")
             write_index(grp_index, chrom_offset, bin_offset, self.h5_opts)
         
         for cell_type, cells in cell_type_dict.items():
-            print(f"processing imputed group for type {cell_type}")
+            encoded_cell_type = encode_name(cell_type)
+            decoded_cell_type = decode_name(encoded_cell_type)
+            print(f"processing imputed group for type {decoded_cell_type}")
             impute_grp = layer_grp[f"imputed_0neighbor"]
-            process_group(impute_grp, cell_type, cells)
+            process_group(impute_grp, encoded_cell_type, cells)
     
     def append_h5(self, atype: str):
         if not os.path.exists(self.output_path):
@@ -487,8 +488,8 @@ class SCHiCGenerator:
             print("appending 1d track data...")
 
             with h5py.File(self.output_path, 'a') as hdf:
-                for res_file in self.tracks:
-                    cur_res = res_file["resolution"]
+                for res_tracks in self.tracks:
+                    cur_res = res_tracks["resolution"]
                     res_grp = hdf[f"resolutions/{cur_res}/layers"]
                     # Ensure the 'tracks' group exists
                     if 'tracks' in res_grp:
@@ -503,11 +504,12 @@ class SCHiCGenerator:
                     chrom_offset_ds = res_grp[f"imputed_0neighbor/cell_0/indexes/chrom_offset"]
                     copy_dataset(chrom_offset_ds, index_grp, "chrom_offset")
 
-                    for track_type, track_f_name in res_file.items():
+                    for track_type, track_f_name in res_tracks["track_object"].items():
                         if track_type in tracks_grp:
                             del tracks_grp[track_type]
                         track_grp = tracks_grp.create_group(track_type)
                         for cell_id in range(self.cell_cnt):
+                            print(track_type, track_f_name)
                             createTrack(self.data_folder, track_grp, track_type, track_f_name, chrom_list, cur_res, n_bins, cell_id, self.h5_opts)       
         else:
             raise ValueError("Invalid atype provided. Only 'embed, meta, 1dtrack' is supported.")
