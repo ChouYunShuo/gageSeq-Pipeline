@@ -4,6 +4,7 @@ import h5py
 import os
 import pickle
 from collections import defaultdict
+import urllib.parse
 OFFSET_DTYPE = np.int64
 
 
@@ -191,22 +192,16 @@ def merge_temp_h5_files(original_h5_path, temp_folder, process_cnt, res, neighbo
     with h5py.File(original_h5_path, 'a') as original_hdf:
         res_grp = original_hdf["resolutions"][str(res)]
         layer_groups = res_grp["layers"]
-
-        raw_grp = layer_groups.create_group("raw")
         imputed_grps = {}
         for num in neighbor_num:
             imputed_grps[num] = layer_groups.create_group(f"imputed_{num}neighbor")
         for process_id in range(process_cnt):
             temp_h5_path = os.path.join(temp_folder, f"temp_cells_{process_id}.h5")
             with h5py.File(temp_h5_path, 'r') as temp_hdf:
-                for cell_key in temp_hdf["raw"].keys():
-                    temp_hdf.copy(f"raw/{cell_key}", raw_grp)
-                
                 for num in neighbor_num:
                     for cell_key in temp_hdf[f"imputed_{num}neighbor"].keys():
                         temp_hdf.copy(f"imputed_{num}neighbor/{cell_key}", imputed_grps[num])
                 
-
             os.remove(temp_h5_path)  # Remove temporary file after merging
 
 def load_pickle(file_path):
@@ -230,7 +225,7 @@ def print_hdf5_structure(file_path):
         padding = ' ' * (depth * 4)  # 4 spaces for each level of depth
         if isinstance(obj, h5py.Group):
             print(f"{padding}Group: {name}")
-            if name.endswith('/cells') or name.endswith('gene_expr'):
+            if name.endswith('neighbor') or name.endswith('raw') or name.endswith("score") or name.endswith("gene_expr"):
                 first_child = list(obj.keys())[0] if obj.keys() else None
                 if first_child:
                     first_child_path = f"{name}/{first_child}"
@@ -246,6 +241,7 @@ def print_hdf5_structure(file_path):
 
     with h5py.File(file_path, 'r') as file:
         print_attrs('', file['/'])
+
 
 def check_hdf5_structure(file_path):
     required_embed_meta_datasets = ['/embed/pca', '/embed/umap','/meta/label']
@@ -295,7 +291,15 @@ def get_celltype_dict(file_path,label_name):
     return cellTypeDict
 
 def get_chr_size_list(dset, res):
-    return [d//res for d in dset]
+    return [2*d//res for d in dset]
+
+def encode_name(name):
+    return urllib.parse.quote(name, safe='')
+
+# Function to decode group names
+def decode_name(encoded_name):
+    return urllib.parse.unquote(encoded_name)
+
 if __name__ == "__main__":
 
     # check cell type dict 
@@ -304,9 +308,9 @@ if __name__ == "__main__":
     
     # check chr size list
     
-    file_path = "/work/magroup/yunshuoc/scHDF5_data/mouse1_slice122_all.h5"
+    file_path = "/scratch/tmp-yunshuo/h5_output/mouse1_slice122_test1.h5"
 
     with h5py.File(file_path, 'r') as hdf: 
         res = 100000
-        chromlen = hdf[f"resolutions/{res}/chroms/length"]
-        print(get_chr_size_list(chromlen, res))
+        grp = hdf[f"resolutions/{res}/layers/imputed_0neighbor/L2"]
+        print(list(grp.keys()))
