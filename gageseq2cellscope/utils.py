@@ -303,14 +303,22 @@ def decode_name(encoded_name):
 if __name__ == "__main__":
 
     # check cell type dict 
-    # file_path = "/work/magroup/tianming/Researches/sc-hic/data2/final/results_mBC_spatial_full_data/meta_mouse2_slice99.csv"
+    #file_path = "/work/magroup/tianming/Researches/sc-hic/data2/final/results_mBC_spatial_full_data/meta_mouse2_slice99.csv"
     # cellTypeDict = get_celltype_dict(file_path, "subclass")
     
     # check chr size list
     
-    file_path = "/scratch/tmp-yunshuo/h5_output/mouse1_slice122_test1.h5"
+    # file_path = "/work/magroup/tianming/Researches/sc-hic/data2/final/results_mBC_spatial_full_data/expression_mouse1_slice122.pkl"
+    # data = load_pickle(file_path)
+    # print(data.shape)
 
-    with h5py.File(file_path, 'r') as hdf: 
-        res = 100000
-        grp = hdf[f"resolutions/{res}/layers/imputed_0neighbor/L2"]
-        print(list(grp.keys()))
+    # with h5py.File(file_path, 'r') as hdf: 
+    #     res = 100000
+    #     grp = hdf[f"resolutions/{res}/gene_expr"]
+    #     print(len(grp.keys()))
+    
+    file_path = "/work/magroup/tianming/Researches/sc-hic/data2/final/results_mBC_spatial_full_data/genes.csv"
+    df = pd.read_csv(file_path)
+
+    print(df.columns.tolist())
+    print(df['gene_symbol'][0])
