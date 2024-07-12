@@ -11,15 +11,15 @@ class GroupMatrixParser:
         self.fname = os.path.join(data_folder, contact_map_fname)
         self.chrom_list = chrom_list
         self.chrom_offset = chrom_offset
-        self.cell_id = cell_ids
+        self.cell_ids = cell_ids
         self.type = mat_type
         self.process_cnt = process_cnt
         self.chrom_sizes = chrom_sizes
 
-    def parse_2d_matrix(self, q, file_path, start, end, size):
+    def parse_2d_matrix(self, q, data, start, end, size):
         m = np.zeros((size, size))
         for cell_id in range(start, end):
-            coo_matrix = pickle.load(file_path)[cell_id]
+            coo_matrix = data[cell_id]
             xs, ys, proba = coo_matrix.row, coo_matrix.col, coo_matrix.data
             proba = self.process_proba(proba)
             np.add.at(m, (xs, ys), proba)
@@ -56,14 +56,12 @@ class GroupMatrixParser:
         return x, y
 
     def __iter__(self):   
-        if self.process_cnt == 1 and self.type == '2d':
-            range_iter = trange(len(self.chrom_list), desc="Processing Chromosomes")
-        else:
-            range_iter = range(len(self.chrom_list))
-
+        range_iter = trange(len(self.chrom_list), desc="Processing Chromosomes")
         for idx in range_iter:
             chrom = self.chrom_list[idx].decode('utf-8')
             file_path = self.fname + chrom + ".pkl"
+            with open(file_path, 'rb') as f:
+                data = pickle.load(f)
             size = self.chrom_sizes[idx]
 
             m = np.zeros((size, size))
@@ -74,13 +72,12 @@ class GroupMatrixParser:
                 start = process_id * cells_per_process
                 end = min((process_id + 1) * cells_per_process, len(self.cell_ids))
                 if start < end:
-                    p = mp.Process(target=self.parse_2d_matrix, args=(q, start, end, file_path, size))
+                    p = mp.Process(target=self.parse_2d_matrix, args=(q, data, start, end, size))
                     processes.append(p)
                     p.start()
 
-            for _ in processes:
-                cell_m = q.get()
-                m += cell_m
+            while not q.empty():
+                m += q.get()
 
             for p in processes:
                 p.join()
@@ -89,7 +86,7 @@ class GroupMatrixParser:
             proba = m[xs, ys]
             proba1 = m[ys, xs]
 
-            x, y = self.adjust_indices(x,y, idx) 
+            x, y = self.adjust_indices(xs,ys, idx) 
             proba = np.concatenate([proba, proba1])
 
             sorter = np.lexsort((y, x))
