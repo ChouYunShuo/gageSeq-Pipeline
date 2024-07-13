@@ -221,10 +221,10 @@ def setup_track(grp, nbins, h5_opts):
     grp.create_dataset("count", shape=(max_shape,),
                        dtype=COUNT_DTYPE, **h5_opts)
 
-def createTrack(data_folder, cur_grp, track_type: str, track_f_name:str, chrom_list, cur_res: int, n_bins, cell_id, h5_opts):
+def createTrack(data_folder, cur_grp, track_type: str, track_f_name:str, chrom_list, n_bins, cell_id, h5_opts):
     if track_type in cur_grp:
         del cur_grp[track_type]
-    track_dataset = cur_grp.create_dataset(track_type, shape=(2*n_bins,),
+    track_dataset = cur_grp.create_dataset(f"cell_{cell_id}", shape=(2*n_bins,),
                        dtype=COUNT_DTYPE, **h5_opts)
     chrom_offset = cur_grp.parent["indexes"].get("chrom_offset")
     cellMatrixParser = MatrixParser(
@@ -514,9 +514,9 @@ class SCHiCGenerator:
                         if track_type in tracks_grp:
                             del tracks_grp[track_type]
                         track_grp = tracks_grp.create_group(track_type)
+                        print(track_type)
                         for cell_id in range(self.cell_cnt):
-                            print(track_type, track_f_name)
-                            createTrack(self.data_folder, track_grp, track_type, track_f_name, chrom_list, cur_res, n_bins, cell_id, self.h5_opts)       
+                            createTrack(self.data_folder, track_grp, track_type, track_f_name, chrom_list, n_bins, cell_id, self.h5_opts)       
         else:
             raise ValueError("Invalid atype provided. Only 'embed, meta, 1dtrack' is supported.")
 
