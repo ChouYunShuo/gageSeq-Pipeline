@@ -25,6 +25,9 @@ OFFSET_DTYPE = np.int64
 """
 ├── meta
 │    ├── label
+│    ├── gene_name gene_row_0 -> {gene meta 0} (group)
+├── gene_expr
+│    ├── genes (2d)
 ├── embed
 │    ├── pca
 │    └── umap
@@ -49,8 +52,8 @@ OFFSET_DTYPE = np.int64
     │         │   │       └── bin1_offset
     │         │   ├── cell_1
     │         │   ├── cell_2
-    │         │   ├── group_0
-    │         │   └── group_1
+    │         │   └── group
+    │         │       └── group_1
     │         ├── tracks
     |         │    ├── insul_score
     │         │    │   ├── cell_0
@@ -186,9 +189,9 @@ def write_embed(grp, embed, h5_opts):
     grp.create_dataset("pca", shape=(len(vec_pca),2), data= vec_pca, **h5_opts)
     grp.create_dataset("umap", shape=(len(vec_umap),2), data= vec_umap, **h5_opts)
 
-def write_meta(grp, data, h5_opts):
-    vec_label = np.array(data['subclass']).astype(str)
-    ascii_label = np.char.encode(vec_label, 'ascii')
+def write_meta(grp, cell_type_dict, h5_opts):
+    cell_type = np.array(cell_type_dict.keys())
+    ascii_label = np.char.encode(cell_type, 'ascii')
     grp.create_dataset("label", shape=(len(ascii_label)), data= ascii_label, **h5_opts)
 
 def write_spatial(grp, data, h5_opts):
@@ -392,8 +395,8 @@ class SCHiCGenerator:
         cell_type_dict = get_celltype_dict(meta_path, "subclass")
         chrom_sizes = get_chr_size_list(layer_grp.parent["chroms/length"], res)
 
-        def process_group(parent_group, cell_type, cells):
-            cur_celltype_grp = parent_group.create_group(cell_type)
+        def process_group(parent_group, idx, cells):
+            cur_celltype_grp = parent_group.create_group(f"group_{idx}")
             cell_celltype_pixels = cur_celltype_grp.create_group("pixels")
             setup_pixels(cell_celltype_pixels, n_bins, self.h5_opts)
             write_group_pixels(cell_celltype_pixels, self.data_folder, self.contact_map_file_name, np_chroms_names, chrom_offset, cells,  list(cur_celltype_grp["pixels"]), self.process_cnt, chrom_sizes)
@@ -402,12 +405,10 @@ class SCHiCGenerator:
             grp_index = cur_celltype_grp.create_group("indexes")
             write_index(grp_index, chrom_offset, bin_offset, self.h5_opts)
         
-        for cell_type, cells in cell_type_dict.items():
-            encoded_cell_type = encode_name(cell_type)
-            decoded_cell_type = decode_name(encoded_cell_type)
-            print(f"processing imputed group for type {decoded_cell_type}")
-            impute_grp = layer_grp[f"imputed_0neighbor"]
-            process_group(impute_grp, encoded_cell_type, cells)
+        impute_grp = layer_grp[f"imputed_0neighbor"].create_group("group")
+        for idx, (cell_type, cells) in enumerate(cell_type_dict.items()):
+            print(f"processing imputed group for type {cell_type}")
+            process_group(impute_grp, idx, cells)
     
     def append_h5(self, atype: str):
         if not os.path.exists(self.output_path):
@@ -441,13 +442,13 @@ class SCHiCGenerator:
             if file_type(meta_path) == 'na':
                 raise RuntimeError("Cannot recognize file: " + meta_path + "'s file type!")
             
-            data = pd.read_csv(meta_path)
+            cell_type_dict = get_celltype_dict(meta_path, "subclass")
             with h5py.File(self.output_path, 'a') as hdf:
                 if 'meta' in hdf:
                     # Delete the group 'rgrp'
                     del hdf['meta']
                 meta_grp = hdf.create_group('meta')
-                write_meta(meta_grp, data, self.h5_opts)
+                write_meta(meta_grp, cell_type_dict, self.h5_opts)
 
         elif(atype == 'spatial'):
             print("appending cell spatial data...")
