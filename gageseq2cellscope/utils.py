@@ -108,7 +108,7 @@ def sort_key(item):
     name = item[0]
     if name.isdigit():
         return int(name)
-    
+# FIXME: add X,Y, consider chr and idx representations 
 def get_chroms_from_txt(filename):
     chromosome_data = []
     
@@ -231,6 +231,9 @@ def print_hdf5_structure(file_path):
                     first_child_path = f"{name}/{first_child}"
                     first_child_obj = obj[first_child]
                     print_attrs(first_child_path, first_child_obj, depth + 1)
+                # if "group" in obj.keys():
+                #     grp_path = f"{name}/group"
+                #     print_attrs(grp_path, obj["group"], depth + 1)
             else:
                 for key in obj.keys():
                     print_attrs(f"{name}/{key}", obj[key], depth + 1)
