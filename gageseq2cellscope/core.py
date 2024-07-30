@@ -190,19 +190,21 @@ def write_embed(grp, embed, h5_opts):
     grp.create_dataset("umap", shape=(len(vec_umap),2), data= vec_umap, **h5_opts)
 
 def write_meta(grp, cell_type_dict, h5_opts):
-    cell_type = np.array(cell_type_dict.keys())
+    cell_type = np.array(list(cell_type_dict.keys()))
     ascii_label = np.char.encode(cell_type, 'ascii')
     grp.create_dataset("label", shape=(len(ascii_label)), data= ascii_label, **h5_opts)
 
+def write_meta_gene(grp, gene_names, h5_opts):
+    print(gene_names.to_numpy())
+    grp.create_dataset('gene_names', data=gene_names.to_numpy(), **h5_opts)
+    
 def write_spatial(grp, data, h5_opts):
     coords = np.column_stack((data['coor_X'].to_numpy(), data['coor_Y'].to_numpy()))
     grp.create_dataset("coords", shape=(len(coords),2), data= coords, **h5_opts)
 
-def write_gene_expr(grp, gene_expr_data, gene_names, h5_opts):
+def write_gene_expr(grp, gene_expr_data, h5_opts):
     gene_expr_data = gene_expr_data.T
-    for k in range(gene_expr_data.shape[0]):
-        v = gene_expr_data[k, :]
-        grp.create_dataset(gene_names[k], shape=(len(v),), data=v, **h5_opts)
+    grp.create_dataset("gene_expr_data", data=gene_expr_data, **h5_opts)
 
 def get_track_index(grp, n_bins, n_pixels):
     bin = np.array(grp["bin_id"])
@@ -437,18 +439,25 @@ class SCHiCGenerator:
         elif(atype == 'meta'):
             print("appending cell meta data...")
             meta_path = os.path.join(self.data_folder, self.meta_file_name)
+            gene_name_path = os.path.join(self.data_folder, self.gene_name_file_name)
             if not os.path.exists(meta_path):
                 raise RuntimeError("File: " + self.meta_file_name + " does not exists, you need to load it first!")
             if file_type(meta_path) == 'na':
                 raise RuntimeError("Cannot recognize file: " + meta_path + "'s file type!")
+            if not os.path.exists(gene_name_path):
+                raise RuntimeError("File: " + self.gene_name_file_name + " does not exists, you need to load it first!")
+            if file_type(gene_name_path) == 'na':
+                raise RuntimeError("Cannot recognize file: " + gene_name_path + "'s file type!")
             
             cell_type_dict = get_celltype_dict(meta_path, "subclass")
+            gene_name = pd.read_csv(gene_name_path)
             with h5py.File(self.output_path, 'a') as hdf:
                 if 'meta' in hdf:
                     # Delete the group 'rgrp'
                     del hdf['meta']
                 meta_grp = hdf.create_group('meta')
                 write_meta(meta_grp, cell_type_dict, self.h5_opts)
+                write_meta_gene(meta_grp, gene_name['gene_symbol'], self.h5_opts)
 
         elif(atype == 'spatial'):
             print("appending cell spatial data...")
@@ -489,7 +498,7 @@ class SCHiCGenerator:
                     # Delete the group 'rgrp'
                     del hdf['gene_expr']
                 gene_grp = hdf.create_group('gene_expr')
-                write_gene_expr(gene_grp, gene_expr_mat, gene_name['gene_symbol'], self.h5_opts) #hard-coded for gene_name column in pd
+                write_gene_expr(gene_grp, gene_expr_mat, self.h5_opts) #hard-coded for gene_name column in pd
 
         elif(atype=='1dtrack'):
             print("appending 1d track data...")
