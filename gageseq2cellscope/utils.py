@@ -320,8 +320,11 @@ if __name__ == "__main__":
     #     grp = hdf[f"resolutions/{res}/gene_expr"]
     #     print(len(grp.keys()))
     
-    file_path = "/work/magroup/tianming/Researches/sc-hic/data2/final/results_mBC_spatial_full_data/genes.csv"
-    df = pd.read_csv(file_path)
-
-    print(df.columns.tolist())
-    print(df['gene_symbol'][0])
+    #file_path = "/work/magroup/tianming/Researches/sc-hic/data2/final/results_mBC_spatial_full_data/genes.csv"
+    file_path = "/scratch/tmp-yunshuo/h5_output/mouse2_slice99_all.h5"
+    with h5py.File(file_path, 'r') as hdf: 
+        res = 100000
+        grp = hdf[f"resolutions/{res}/layers/imputed_0neighbor/group"]
+        print(len(grp.keys()))
+        print(grp.keys())
+   
