@@ -189,12 +189,17 @@ def write_embed(grp, embed, h5_opts):
     grp.create_dataset("pca", shape=(len(vec_pca),2), data= vec_pca, **h5_opts)
     grp.create_dataset("umap", shape=(len(vec_umap),2), data= vec_umap, **h5_opts)
 
-def write_meta(grp, cell_type_dict, h5_opts):
+def write_meta_cell_label(grp, data, h5_opts):
+    vec_label = np.array(data['subclass']).astype(str)
+    ascii_label = np.char.encode(vec_label, 'ascii')
+    grp.create_dataset("cell_label", shape=(len(ascii_label)), data= ascii_label, **h5_opts)
+
+def write_meta_group_label(grp, cell_type_dict, h5_opts):
     cell_type = np.array(list(cell_type_dict.keys()))
     ascii_label = np.char.encode(cell_type, 'ascii')
-    grp.create_dataset("label", shape=(len(ascii_label)), data= ascii_label, **h5_opts)
+    grp.create_dataset("group_label", shape=(len(ascii_label)), data= ascii_label, **h5_opts)
 
-def write_meta_gene(grp, gene_names, h5_opts):
+def write_meta_gene_name(grp, gene_names, h5_opts):
     print(gene_names.to_numpy())
     grp.create_dataset('gene_names', data=gene_names.to_numpy(), **h5_opts)
     
@@ -451,13 +456,15 @@ class SCHiCGenerator:
             
             cell_type_dict = get_celltype_dict(meta_path, "subclass")
             gene_name = pd.read_csv(gene_name_path)
+            cell_label = pd.read_csv(meta_path)
             with h5py.File(self.output_path, 'a') as hdf:
                 if 'meta' in hdf:
                     # Delete the group 'rgrp'
                     del hdf['meta']
                 meta_grp = hdf.create_group('meta')
-                write_meta(meta_grp, cell_type_dict, self.h5_opts)
-                write_meta_gene(meta_grp, gene_name['gene_symbol'], self.h5_opts)
+                write_meta_group_label(meta_grp, cell_type_dict, self.h5_opts)
+                write_meta_gene_name(meta_grp, gene_name['gene_symbol'], self.h5_opts)
+                write_meta_cell_label(meta_grp, cell_label, self.h5_opts)
 
         elif(atype == 'spatial'):
             print("appending cell spatial data...")
